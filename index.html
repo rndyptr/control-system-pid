@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor Suhu &amp; Relay — USB to RS232</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" id="statusDot"></span>
+        <h1>Kendali On Off dan PID Temperatur Menggunakan Atmega324p</h1>
+      </div>
+      <div class="topbar-right">
+        <div class="mode-switch-wrap">
+          <button type="button" id="modeToggle" class="mode-switch" data-mode="onoff"
+                  role="switch" aria-checked="false" aria-label="Mode kontrol suhu">
+            <span class="mode-switch-label mode-switch-label-left">⏻</span>
+            <span class="mode-switch-label mode-switch-label-right">P</span>
+            <span class="mode-switch-knob"><span id="modeSwitchIcon">⏻</span></span>
+          </button>
+          <span class="mode-switch-caption" id="modeSwitchCaption">ON/OFF</span>
+        </div>
+        <span class="badge" id="statusText">Terputus</span>
+      </div>
+    </header>
+
+    <main class="grid">
+
+      <!-- Koneksi -->
+      <section class="card wide">
+        <h2>Koneksi Serial</h2>
+
+        <div class="conn-row">
+          <div class="field-row">
+            <label>Port</label>
+            <button type="button" id="btnPickPort" class="port-picker">
+              <span id="pickedPortLabel">Belum ada port dipilih</span>
+              <span class="port-picker-chevron">›</span>
+            </button>
+          </div>
+
+          <div class="field-row">
+            <label>Baud Rate</label>
+            <div class="dropdown" id="baudDropdown">
+              <button type="button" class="port-picker" id="btnBaudToggle">
+                <span id="pickedBaudLabel">9600</span>
+                <span class="port-picker-chevron">›</span>
+              </button>
+              <div class="dropdown-panel" id="baudPanel" hidden>
+                <button type="button" class="dropdown-item selected" data-baud="9600">9600</button>
+                <button type="button" class="dropdown-item" data-baud="19200">19200</button>
+                <button type="button" class="dropdown-item" data-baud="38400">38400</button>
+                <button type="button" class="dropdown-item" data-baud="57600">57600</button>
+                <button type="button" class="dropdown-item" data-baud="115200">115200</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-row conn-actions">
+            <label>&nbsp;</label>
+            <div class="btn-row">
+              <button id="btnConnect" class="btn btn-primary" disabled>Sambungkan</button>
+              <button id="btnDisconnect" class="btn btn-ghost" disabled>Putuskan</button>
+            </div>
+          </div>
+        </div>
+        <p class="port-info" id="portInfo"></p>
+      </section>
+
+      <!-- Suhu -->
+      <section class="card">
+        <h2>Suhu (NTC)</h2>
+        <div class="temp-display">
+          <span id="tempValue">--.-</span><span class="unit">°C</span>
+        </div>
+        <p class="hint" id="lastUpdate">Belum ada data</p>
+      </section>
+
+      <!-- Setting Point -->
+      <section class="card">
+        <h2>Setpoint</h2>
+        <div class="temp-display">
+          <span id="setpointValue">--.-</span><span class="unit">°C</span>
+        </div>
+        <p class="hint">Dibaca dari Arduino, read-only</p>
+      </section>
+
+      <!-- Relay (mode ON/OFF) -->
+      <section class="card" id="relayCard">
+        <h2>Relay</h2>
+        <div class="relay-row">
+          <span class="relay-state" id="relayState">OFF</span>
+        </div>
+        <p class="hint">Otomatis — ON saat suhu &lt; setpoint (memanaskan)</p>
+      </section>
+
+      <!-- PID (mode PID) -->
+      <section class="card" id="pidCard" hidden>
+        <h2>Parameter PID</h2>
+        <div class="pid-values">
+          <div class="pid-item"><span class="pid-label">Kp</span><span class="pid-value" id="pidKp">--</span></div>
+          <div class="pid-item"><span class="pid-label">Ki</span><span class="pid-value" id="pidKi">--</span></div>
+          <div class="pid-item"><span class="pid-label">Kd</span><span class="pid-value" id="pidKd">--</span></div>
+        </div>
+        <p class="hint">Dibaca dari Arduino, read-only</p>
+      </section>
+
+      <!-- Grafik -->
+      <section class="card wide">
+        <div class="card-header">
+          <h2>Grafik Suhu</h2>
+          <div class="legend">
+            <span class="legend-item"><span class="legend-swatch swatch-temp"></span>Suhu</span>
+            <span class="legend-item"><span class="legend-swatch swatch-setpoint"></span>Setpoint</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartCanvas"></canvas>
+        </div>
+      </section>
+
+      <!-- Data Log -->
+      <section class="card wide">
+        <div class="card-header">
+          <h2>Data Log</h2>
+          <div class="btn-row">
+            <button id="btnClear" class="btn btn-ghost">Bersihkan</button>
+            <button id="btnSave" class="btn btn-secondary">Simpan ke File (CSV)</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="logTable">
+            <thead>
+              <tr><th>Waktu</th><th>Suhu (°C)</th><th>Setpoint (°C)</th><th>Relay</th><th>Kp</th><th>Ki</th><th>Kd</th></tr>
+            </thead>
+            <tbody id="logBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Console -->
+      <section class="card wide">
+        <h2>Serial Monitor (Raw)</h2>
+        <div class="console" id="consoleBox"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Custom Port Picker Modal -->
+  <div class="modal-overlay" id="portModalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="portModalTitle">
+      <div class="modal-header">
+        <h3 id="portModalTitle">Pilih Port Serial</h3>
+        <button type="button" class="modal-close" id="btnCloseModal" aria-label="Tutup">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-sublabel" id="portListEmptyHint">Belum ada port tersimpan</p>
+        <div class="port-card-list" id="portCardList"></div>
+
+        <button type="button" class="port-card port-card-new" id="btnScanNewPort">
+          <span class="port-card-icon">+</span>
+          <span class="port-card-text">
+            <span class="port-card-title">Cari Port Baru</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
