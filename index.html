@@ -26,6 +26,10 @@
           </button>
           <span class="mode-switch-caption" id="modeSwitchCaption">ON/OFF</span>
         </div>
+        <button type="button" id="themeToggle" class="theme-switch" data-theme="light"
+                role="switch" aria-checked="false" aria-label="Ganti tema terang/gelap">
+          <span class="theme-switch-knob" id="themeSwitchIcon">☀</span>
+        </button>
         <span class="badge" id="statusText">Terputus</span>
       </div>
     </header>
@@ -165,7 +169,7 @@
         <div class="port-card-list" id="portCardList"></div>
 
         <button type="button" class="port-card port-card-new" id="btnScanNewPort">
-          <span class="port-card-icon">+</span>
+          <span class="port-card-icon"></span>
           <span class="port-card-text">
             <span class="port-card-title">Cari Port Baru</span>
           </span>

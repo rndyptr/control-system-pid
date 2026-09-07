@@ -43,12 +43,17 @@
     modeToggle: document.getElementById('modeToggle'),
     modeSwitchIcon: document.getElementById('modeSwitchIcon'),
     modeSwitchCaption: document.getElementById('modeSwitchCaption'),
+    themeToggle: document.getElementById('themeToggle'),
+    themeSwitchIcon: document.getElementById('themeSwitchIcon'),
     btnClear: document.getElementById('btnClear'),
     btnSave: document.getElementById('btnSave'),
     logBody: document.getElementById('logBody'),
     consoleBox: document.getElementById('consoleBox'),
     chartCanvas: document.getElementById('chartCanvas'),
   };
+
+  const ICON_SUN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+  const ICON_MOON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 
   const CHART_WINDOW = 60; // jumlah titik terakhir yang ditampilkan (~1 menit @ 1 data/detik)
   const chartCtx = els.chartCanvas.getContext('2d');
@@ -66,6 +71,7 @@
     baudRate: 9600,
     chartPoints: [], // { t: detik sejak konek, temp, setpoint }
     startTime: null,
+    lastDataAt: null, // Date.now() saat baris data valid terakhir diterima
   };
 
   if (!('serial' in navigator)) {
@@ -338,12 +344,60 @@
     setControlMode(els.modeToggle.dataset.mode === 'onoff' ? 'pid' : 'onoff');
   });
 
+  // ---------- Theme switch: light vs dark ----------
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    els.themeToggle.dataset.theme = theme;
+    els.themeToggle.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
+    els.themeSwitchIcon.innerHTML = theme === 'dark' ? ICON_MOON : ICON_SUN;
+    try { localStorage.setItem('theme', theme); } catch (_) {}
+  }
+
+  (function initTheme() {
+    let saved = null;
+    try { saved = localStorage.getItem('theme'); } catch (_) {}
+    if (saved === 'light' || saved === 'dark') {
+      setTheme(saved);
+    } else {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setTheme(prefersDark ? 'dark' : 'light');
+    }
+  })();
+
+  els.themeToggle.addEventListener('click', () => {
+    setTheme(els.themeToggle.dataset.theme === 'dark' ? 'light' : 'dark');
+  });
+
   // ---------- UI helpers ----------
 
   function setStatus(kind, text) {
     els.statusDot.className = 'dot' + (kind ? ' ' + kind : '');
     els.statusText.textContent = text;
   }
+
+  // ---------- Freshness data (deteksi koneksi diam-diam macet) ----------
+
+  const STALE_MS = 3000; // kalau nggak ada baris baru > 3 detik saat konek, tandai stale
+
+  function updateFreshness() {
+    if (state.lastDataAt === null) {
+      els.lastUpdate.textContent = 'Belum ada data';
+      els.lastUpdate.classList.remove('stale');
+      return;
+    }
+    const elapsedMs = Date.now() - state.lastDataAt;
+    const secs = Math.floor(elapsedMs / 1000);
+    els.lastUpdate.textContent = secs <= 1
+      ? 'Update terakhir: baru saja'
+      : `Update terakhir: ${secs} detik lalu`;
+
+    const isStale = state.port !== null && elapsedMs > STALE_MS;
+    els.lastUpdate.classList.toggle('stale', isStale);
+    if (isStale) els.lastUpdate.textContent += ' — tidak ada data masuk!';
+  }
+
+  setInterval(updateFreshness, 1000);
 
   function logConsole(text) {
     const time = new Date().toLocaleTimeString();
@@ -463,6 +517,8 @@
 
     state.port = null;
     state.reader = null;
+    state.lastDataAt = null;
+    updateFreshness();
 
     setStatus('', 'Terputus');
     setConnectedUI(false);
@@ -531,10 +587,11 @@
 
     state.currentTemp = temp;
     state.currentSetpoint = setpoint;
+    state.lastDataAt = Date.now();
 
     els.tempValue.textContent = temp.toFixed(1);
     els.setpointValue.textContent = setpoint.toFixed(1);
-    els.lastUpdate.textContent = `Update terakhir: ${new Date().toLocaleTimeString()}`;
+    updateFreshness();
 
     let relayOn = null;
     let kp = null, ki = null, kd = null;
