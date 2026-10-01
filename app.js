@@ -55,7 +55,9 @@
   const ICON_SUN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
   const ICON_MOON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 
-  const CHART_WINDOW = 60; // jumlah titik terakhir yang ditampilkan (~1 menit @ 1 data/detik)
+  // Grafik menampilkan SELURUH riwayat sejak konek (sumbu X memadat, bukan bergeser).
+  // Batas ini hanya pengaman memori: ~12 jam @ 1 data/detik.
+  const CHART_MAX_POINTS = 43200;
   const chartCtx = els.chartCanvas.getContext('2d');
 
   const state = {
@@ -224,9 +226,11 @@
   window.addEventListener('resize', resizeChart);
 
   function fmtTime(sec) {
-    const m = Math.floor(sec / 60);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return h > 0 ? `${h}:${mmss}` : mmss;
   }
 
   // Bulatkan step antar-garis grid ke angka "rapi" (1/2/2.5/5 × 10^n, termasuk
@@ -315,16 +319,43 @@
       chartCtx.fillText(fmtTime(t), xOf(t), padT + plotH + 6);
     }
 
+    // Kalau titik lebih banyak dari lebar piksel, gambar min & max per kolom
+    // piksel saja — riwayat panjang tetap ringan digambar, dan lonjakan/fluktuasi
+    // tidak hilang karena dipadatkan.
     function drawLine(key, color, dashed) {
       chartCtx.beginPath();
       chartCtx.setLineDash(dashed ? [4, 3] : []);
       chartCtx.strokeStyle = color;
       chartCtx.lineWidth = 1.75;
-      points.forEach((p, i) => {
-        const x = xOf(p.t);
-        const y = yOf(Math.max(yMin, Math.min(yMax, p[key])));
-        if (i === 0) chartCtx.moveTo(x, y); else chartCtx.lineTo(x, y);
-      });
+      const yClamped = v => yOf(Math.max(yMin, Math.min(yMax, v)));
+      let started = false;
+      const plot = (x, v) => {
+        if (!started) { chartCtx.moveTo(x, yClamped(v)); started = true; }
+        else chartCtx.lineTo(x, yClamped(v));
+      };
+
+      if (points.length <= plotW * 2) {
+        points.forEach(p => plot(xOf(p.t), p[key]));
+      } else {
+        let col = -1, lo = null, hi = null;
+        const flush = () => {
+          if (col < 0) return;
+          plot(col, lo.v); // min dulu lalu max, urut waktu biar garis tidak silang aneh
+          if (hi.v !== lo.v) plot(col, hi.v);
+        };
+        points.forEach(p => {
+          const c = Math.round(xOf(p.t));
+          const v = p[key];
+          if (c !== col) {
+            flush();
+            col = c; lo = { v }; hi = { v };
+          } else {
+            if (v < lo.v) lo.v = v;
+            if (v > hi.v) hi.v = v;
+          }
+        });
+        flush();
+      }
       chartCtx.stroke();
       chartCtx.setLineDash([]);
     }
@@ -337,7 +368,8 @@
     if (state.startTime === null) state.startTime = Date.now();
     const t = (Date.now() - state.startTime) / 1000;
     state.chartPoints.push({ t, temp, setpoint });
-    while (state.chartPoints.length > CHART_WINDOW) state.chartPoints.shift();
+    // Riwayat sejak konek tetap disimpan; dibatasi hanya sebagai pengaman memori
+    if (state.chartPoints.length > CHART_MAX_POINTS) state.chartPoints.shift();
     drawChart();
   }
 
