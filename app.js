@@ -229,23 +229,27 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  // Bulatkan step antar-garis grid ke angka "rapi" (1/2/5/10/25/50 dst)
-  // biar labelnya enak dibaca, bukan angka desimal aneh.
+  // Bulatkan step antar-garis grid ke angka "rapi" (1/2/2.5/5 × 10^n, termasuk
+  // pecahan 0.1/0.2/0.5) biar fluktuasi kecil tetap mengisi tinggi grafik.
   function niceStep(rough) {
-    const STEPS = [1, 2, 2.5, 5, 10, 25, 50, 100];
-    for (const s of STEPS) if (rough <= s) return s;
     const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-    return Math.ceil(rough / mag) * mag;
+    for (const m of [1, 2, 2.5, 5, 10]) if (rough <= m * mag + 1e-9) return m * mag;
+    return 10 * mag;
   }
 
+  const MIN_Y_SPAN = 0.5; // °C — rentang minimum, biar noise sensor 0.01°C tidak terlihat seperti lonjakan
+
   function computeYRange(points) {
-    if (points.length === 0) return { min: 0, max: 100 };
+    if (points.length === 0) return { min: 0, max: 100, step: 25 };
     let lo = Infinity, hi = -Infinity;
     points.forEach(p => {
       lo = Math.min(lo, p.temp, p.setpoint);
       hi = Math.max(hi, p.temp, p.setpoint);
     });
-    if (lo === hi) { lo -= 5; hi += 5; }
+    if (hi - lo < MIN_Y_SPAN) {
+      const mid = (hi + lo) / 2;
+      lo = mid - MIN_Y_SPAN / 2; hi = mid + MIN_Y_SPAN / 2;
+    }
     const pad = (hi - lo) * 0.2;
     lo -= pad; hi += pad;
 
@@ -264,24 +268,33 @@
 
     chartCtx.clearRect(0, 0, W, H);
 
+    // Ambil warna dari CSS variable supaya ikut light/dark mode
+    const css = getComputedStyle(document.documentElement);
+    const cGrid = css.getPropertyValue('--border').trim() || '#e4e4e1';
+    const cMuted = css.getPropertyValue('--muted').trim() || '#8a8a86';
+    const cInk = css.getPropertyValue('--ink').trim() || '#1c1c1a';
+
     const points = state.chartPoints;
     const { min: yMin, max: yMax, step: yStep } = computeYRange(points);
     const yOf = v => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+    const decimals = Math.max(0, -Math.floor(Math.log10(yStep) + 1e-9));
 
     // grid & label sumbu Y (auto-scale sesuai rentang data)
-    chartCtx.strokeStyle = '#e4e4e1';
-    chartCtx.fillStyle = '#8a8a86';
+    chartCtx.strokeStyle = cGrid;
+    chartCtx.fillStyle = cMuted;
     chartCtx.font = '11px "Google Sans Flex", "Segoe UI", sans-serif';
     chartCtx.textAlign = 'right';
     chartCtx.textBaseline = 'middle';
-    for (let v = yMin; v <= yMax + 1e-6; v += (yStep || 25)) {
+    const nLines = Math.round((yMax - yMin) / yStep);
+    for (let i = 0; i <= nLines; i++) {
+      const v = yMin + i * yStep; // hitung per indeks, hindari akumulasi error float
       const y = yOf(v);
       chartCtx.beginPath();
       chartCtx.moveTo(padL, y);
       chartCtx.lineTo(padL + plotW, y);
       chartCtx.lineWidth = 1;
       chartCtx.stroke();
-      chartCtx.fillText(v % 1 === 0 ? String(v) : v.toFixed(1), padL - 8, y);
+      chartCtx.fillText(v.toFixed(decimals), padL - 8, y);
     }
 
     if (points.length === 0) {
@@ -316,8 +329,8 @@
       chartCtx.setLineDash([]);
     }
 
-    drawLine('setpoint', '#8a8a86', true);
-    drawLine('temp', '#1c1c1a', false);
+    drawLine('setpoint', cMuted, true);
+    drawLine('temp', cInk, false);
   }
 
   function pushChartPoint(temp, setpoint) {
@@ -352,6 +365,7 @@
     els.themeToggle.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
     els.themeSwitchIcon.innerHTML = theme === 'dark' ? ICON_MOON : ICON_SUN;
     try { localStorage.setItem('theme', theme); } catch (_) {}
+    drawChart(); // warna grafik dibaca dari CSS variable, jadi gambar ulang
   }
 
   (function initTheme() {
